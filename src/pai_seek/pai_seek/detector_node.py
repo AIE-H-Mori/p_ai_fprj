@@ -62,6 +62,8 @@ class Detector(Node):
                 'conf': round(float(box.conf), 3),
                 'cx': round(((x1 + x2) / 2 - w / 2) / (w / 2), 3),
                 'h': round((y2 - y1) / h, 3),
+                # 枠の位置（画像の幅・高さで割った 0〜1 の値）。録画ノードが枠を描くのに使う
+                'box': [round(x1 / w, 3), round(y1 / h, 3), round(x2 / w, 3), round(y2 / h, 3)],
             })
         self.pub_det.publish(String(data=json.dumps(dets)))
         out = CompressedImage(format='jpeg')
