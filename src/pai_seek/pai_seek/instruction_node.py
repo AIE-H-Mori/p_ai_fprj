@@ -35,7 +35,8 @@ TARGETS = {
 MODE_WORDS = {
     'stop': ['止ま', 'とま', '待', 'まって', 'ストップ', 'stop', 'じっと', 'そこにい'],
     'follow': ['ついて', '付いて', 'ついてきて', '追いかけ', '追って', 'フォロー'],
-    'approach': ['行って', 'いって', '近づ', 'まで', '向かって', 'のところ', 'へ行'],
+    'approach': ['行って', 'いって', '近づ', 'まで', '向かって', 'のところ', 'へ行',
+                 '来て', 'きて', 'おいで', 'こっち'],
 }
 
 SYSTEM_PROMPT = """あなたは家庭用の移動ロボットの指示解釈係です。
@@ -43,8 +44,16 @@ SYSTEM_PROMPT = """あなたは家庭用の移動ロボットの指示解釈係�
 
 mode は次のどれか1つ:
 - "follow"   : 対象についていく（例「ついてきて」「追いかけて」）
-- "approach" : 対象のところへ行って止まる（例「椅子のところへ行って」）
+- "approach" : 対象のところへ行って止まる（例「〇〇のところへ行って」「私のところへ来て」「こっちに来て」）
 - "stop"     : その場で待つ（例「止まって」「待って」）
+「来て」「おいで」は話し手（person）のところへ来る approach です。stop ではありません。
+
+例:
+- 私のところへきて → mode=approach, target=person
+- こっちに来て → mode=approach, target=person
+- 私についてきて → mode=follow, target=person
+- そこで待っていて → mode=stop, target=none
+- 車のところに行って → mode=approach, target=car
 
 target は次の英語のどれか1つ（stop のときや対象がないときは "none"）:
 {targets}
@@ -132,6 +141,13 @@ class Instruction(Node):
                 self.get_logger().warn(f'LLM error: {e}')
         if not self.valid(ans):
             ans, source = self.by_keywords(text), 'keyword'
+        else:
+            # 食い違いチェック：LLM が stop と答えたのに、指示文に「待つ・止まる」の言葉がなく
+            # 「来て」「ついて」など動く言葉があるときは、キーワード照合の結果を優先する
+            kw = self.by_keywords(text)
+            if ans['mode'] == 'stop' and kw and kw['mode'] != 'stop':
+                self.get_logger().warn(f'LLM の答え（stop）が指示文と食い違うため、キーワード照合を使います: {kw}')
+                ans, source = kw, 'keyword(LLMと食い違い)'
         if ans is None:
             self.say('すみません、わかりませんでした')
             return

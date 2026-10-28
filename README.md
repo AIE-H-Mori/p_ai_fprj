@@ -30,19 +30,19 @@ docker start pai_final
 bash /workspace/start_demo.sh
 ```
 
-Gazebo が開き、人が置かれ、「準備完了」と出るまで待つ（1〜2分）。
+Gazebo が開き、人が置かれ、「準備完了」と出るまで待つ（1〜2分）。少し遅れて、ロボット目線の映像（YOLO の枠付き）のウィンドウも開く。映像が出ないときは、ウィンドウ左上のプルダウンで `/detector/image/compressed` を選ぶ（一度選べば次回から覚えている）。
 
-**③ 指示用のターミナルを開く**（別の PowerShell で）
+**③ 指示用のターミナルを開く**（①のブラウザ画面の中で、もう1つターミナルを開く）
+
+```bash
+bash /workspace/talk.sh
+```
+
+ブラウザ画面の中で日本語が入力できない場合は、代わりに Windows の PowerShell からコンテナに入って同じコマンドを実行する。
 
 ```powershell
 chcp 65001
 docker exec -it -u ubuntu pai_final bash
-```
-
-入ったら：
-
-```bash
-bash /workspace/talk.sh
 ```
 
 **④ 指示する**：「指示>」に入力して Enter
@@ -152,7 +152,7 @@ bash /workspace/setup_ollama.sh
 
 **起動**：`bash /workspace/run_seek.sh person stop`（instruction ノードも一緒に起動。最初は待機）
 
-**指示を入力**：コンテナのデスクトップでは日本語入力ができないことが多いので、Windows の PowerShell から入る
+**指示を入力**：コンテナのデスクトップ画面のターミナルで実行する（日本語が入力できない環境では、Windows の PowerShell から入る）
 
 ```powershell
 docker exec -it -u ubuntu pai_final bash
@@ -219,8 +219,56 @@ git config --global --add safe.directory /workspace   # 初回だけ
 git add . && git commit -m "変更内容"
 ```
 
-`build/` `install/` `log/` と YOLO の重み（`*.pt`）は `.gitignore` で除外済み。
+`build/` `install/` `log/`、YOLO の重み（`*.pt`）、録画ファイル（`videos/`）などは `.gitignore` で除外済み。
+
+### コミット済みのファイルを公開対象から外す
+
+`.gitignore` に書いても、**すでにコミットしたファイルは除外されない**。手元のファイルは残したまま Git の管理からだけ外すには `git rm --cached` を使う。
+
+```bash
+cd /workspace
+echo 'ファイル名' >> .gitignore          # まだ書いていなければ .gitignore に追加
+git rm --cached ファイル名               # Git の管理から外す（手元のファイルは消えない）
+git add .gitignore
+git commit -m "ファイル名 を公開対象から外す"
+git ls-files                             # 公開されるファイルの一覧で確認
+```
+
+- フォルダごと外すときは `git rm -r --cached フォルダ名`
+- `--cached` を付け忘れると、手元のファイルも削除されるので注意
+- 過去のコミットの中身には残る。パスワードなど見られて困るものをコミットしてしまった場合は、履歴ごと消す必要がある（公開前なら、リポジトリを作り直すのが簡単）
+
+### コミットの作者情報（名前・メールアドレス）を直す
+
+コミットには作者の名前とメールアドレスが記録され、GitHub で公開すると誰でも見られる。個人のメールアドレスを出したくないときは、GitHub の Settings → Emails に表示される `…@users.noreply.github.com` を使う。
+
+```bash
+cd /workspace
+git config user.name "GitHub のユーザー名"
+git config user.email "ID+ユーザー名@users.noreply.github.com"
+git log --format='%h %an <%ae> %s'       # 今の作者情報を確認
+```
+
+すでにあるコミットを直すとき（push する前に行う）：
+
+```bash
+# 最新の1つだけ
+git commit --amend --reset-author --no-edit
+# 最初のコミットから全部
+git rebase -r --root --exec "git commit --amend --reset-author --no-edit"
+```
+
+最後にもう一度 `git log --format='%h %an <%ae> %s'` で確認する。
 
 ## ライセンス
 
-Apache-2.0（予定。公開前に LICENSE ファイルを追加する）
+GNU Affero General Public License v3.0（AGPL-3.0）。全文は [LICENSE](LICENSE) を参照。
+
+物体検出に使っている Ultralytics YOLO が AGPL-3.0 のため、このリポジトリのコードも同じライセンスで公開しています。そのほかに使っているもののライセンスは次のとおり。
+
+| 名前 | ライセンス |
+| --- | --- |
+| ROS 2 Humble / Gazebo Classic / TurtleBot3 | Apache-2.0 |
+| Ultralytics YOLO11 | AGPL-3.0 |
+| Ollama | MIT |
+| Qwen2.5 1.5B（モデルの重み） | Apache-2.0 |

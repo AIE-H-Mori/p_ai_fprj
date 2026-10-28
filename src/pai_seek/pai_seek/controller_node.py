@@ -12,6 +12,8 @@
   ARRIVED  : (approach) 到着して停止
   FOLLOW   : (follow) 距離を保つ。離れたら追う・近すぎたら下がる・ちょうどよければ待つ
   WAIT     : (stop) 待機
+  FACE     : 一周しても見つからないとき、すぐ近く（1.8m 以内）の物の方を向く
+  BACKOFF  : そのまま下がって距離をあけ、全身が映るようにしてから探し直す
 
 subscribe: /detections (String JSON), /scan (LaserScan), /target (String), /mode (String)
 publish:   /cmd_vel (Twist), /seek/state (String)
@@ -26,8 +28,8 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 
-SEARCH, APPROACH, CLOSE, ARRIVED, FOLLOW, WAIT = \
-    'SEARCH', 'APPROACH', 'CLOSE', 'ARRIVED', 'FOLLOW', 'WAIT'
+SEARCH, APPROACH, CLOSE, ARRIVED, FOLLOW, WAIT, FACE, BACKOFF = \
+    'SEARCH', 'APPROACH', 'CLOSE', 'ARRIVED', 'FOLLOW', 'WAIT', 'FACE', 'BACKOFF'
 MODES = ('approach', 'follow', 'stop')
 
 
@@ -49,6 +51,9 @@ class Controller(Node):
         p('lost_timeout', 1.5)      # [s] カメラで見失ったとみなすまでの時間
         p('close_range', 1.5)       # [m] LiDAR で「近くにいる」とみなす距離
         p('close_fov_deg', 35.0)    # [deg] LiDAR が目標を探す正面の範囲（±）
+        p('backoff_trigger', 1.8)   # [m] 一周しても見つからないとき、これより近い物があれば下がって見直す
+        p('backoff_distance', 2.4)  # [m] 下がって、正面の物とこの距離をあける（全身が映る距離）
+        p('backoff_speed', 0.12)    # [m/s]
 
         self.target = self.get_parameter('target').value
         self.mode = self.get_parameter('mode').value
@@ -60,6 +65,9 @@ class Controller(Node):
         self.front = math.inf
         self.near = None            # (距離, 角度[rad]) 正面 ±close_fov の最も近い点
         self.no_near_ticks = 0
+        self.nearest = None         # (距離, 角度) 全周で一番近い点
+        self.rear = math.inf        # 真後ろ ±30° の最短距離（下がるときの安全確認）
+        self.state_time = self.get_clock().now()
 
         self.create_subscription(String, '/detections', self.on_det, 10)
         self.create_subscription(LaserScan, '/scan', self.on_scan, qos_profile_sensor_data)
@@ -77,6 +85,10 @@ class Controller(Node):
         if s != self.state:
             self.get_logger().info(f'{self.state} -> {s}')
             self.state = s
+            self.state_time = self.get_clock().now()
+
+    def state_age(self):
+        return (self.get_clock().now() - self.state_time).nanoseconds * 1e-9
 
     # ---- callbacks ----
     def on_target(self, msg):
@@ -105,7 +117,7 @@ class Controller(Node):
     def on_scan(self, msg):
         front_lim = math.radians(15)
         close_lim = math.radians(self.P('close_fov_deg'))
-        front, near = math.inf, None
+        front, near, nearest, rear = math.inf, None, None, math.inf
         for i, r in enumerate(msg.ranges):
             if not (msg.range_min < r < msg.range_max):
                 continue
@@ -115,7 +127,11 @@ class Controller(Node):
                 front = min(front, r)
             if abs(a) <= close_lim and (near is None or r < near[0]):
                 near = (r, a)
-        self.front, self.near = front, near
+            if nearest is None or r < nearest[0]:
+                nearest = (r, a)
+            if abs(a) >= math.radians(150):
+                rear = min(rear, r)
+        self.front, self.near, self.nearest, self.rear = front, near, nearest, rear
 
     def seen_recently(self):
         if self.det_time is None:
@@ -139,11 +155,39 @@ class Controller(Node):
         self.no_near_ticks = 0 if near_ok else self.no_near_ticks + 1
 
         if self.state == SEARCH:
+            full_turn = 2 * math.pi / self.P('search_speed') * 1.1   # 一周にかかる時間（少し余裕）
             if seen:
                 self.set_state(APPROACH)
+            elif self.state_age() > full_turn and self.nearest is not None \
+                    and self.nearest[0] < self.P('backoff_trigger'):
+                # 一周しても見つからないが、すぐ近くに何かある
+                # = 近すぎて足しか映らず検出できていない可能性 → そちらを向いて下がり、見直す
+                self.set_state(FACE)
             else:
                 direction = -1.0 if self.last_cx > 0 else 1.0   # 最後に見えた方向へ回る
                 cmd.angular.z = direction * self.P('search_speed')
+
+        elif self.state == FACE:
+            if seen:
+                self.set_state(APPROACH)
+            elif self.nearest is None or self.state_age() > 15.0:
+                self.set_state(SEARCH)
+            else:
+                a = self.nearest[1]
+                cmd.angular.z = max(-0.6, min(0.6, self.P('k_lidar') * a))
+                if abs(a) < 0.15:
+                    self.set_state(BACKOFF)
+
+        elif self.state == BACKOFF:
+            far_enough = self.near is None or self.near[0] >= self.P('backoff_distance')
+            if seen:
+                self.set_state(APPROACH)
+            elif far_enough or self.rear < 0.4 or self.state_age() > 20.0:
+                self.set_state(SEARCH)     # 下がり終えた（または後ろが近い）→ もう一度探す
+            else:
+                cmd.linear.x = -self.P('backoff_speed')
+                if self.near is not None:  # 正面の物の方を向いたまま下がる
+                    cmd.angular.z = max(-0.4, min(0.4, self.P('k_lidar') * self.near[1]))
 
         elif self.state == APPROACH:
             if self.mode == 'follow' and near_ok and seen:

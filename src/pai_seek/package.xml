@@ -4,7 +4,7 @@
   <version>0.1.0</version>
   <description>Find a target object with YOLO and drive TurtleBot3 to it (PAI final project)</description>
   <maintainer email="user@example.com">pai</maintainer>
-  <license>Apache-2.0</license>
+  <license>AGPL-3.0-only</license>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>

@@ -14,7 +14,7 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    license='Apache-2.0',
+    license='AGPL-3.0-only',
     entry_points={
         'console_scripts': [
             'detector = pai_seek.detector_node:main',

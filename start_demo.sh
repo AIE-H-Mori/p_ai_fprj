@@ -22,7 +22,7 @@ source install/setup.bash
 echo "== Gazebo を起動します"
 ros2 launch turtlebot3_gazebo empty_world.launch.py > log/gazebo.log 2>&1 &
 GZ=$!
-trap "kill $GZ 2>/dev/null; pkill -f gzserver; pkill -f gzclient" EXIT
+trap "kill $GZ 2>/dev/null; pkill -f gzserver; pkill -f gzclient; pkill -f rqt_image_view" EXIT
 
 # 4. Gazebo の準備を待って人を置く
 for i in $(seq 1 60); do
@@ -32,6 +32,9 @@ done
 ros2 run gazebo_ros spawn_entity.py -database person_standing -entity person -x 3.5 -y 0.0 \
   > log/spawn.log 2>&1 || echo "（人はすでに置いてあるか、置けませんでした。log/spawn.log を確認）"
 
-# 5. 検出・制御・指示ノード（待機状態で開始）
+# 5. ロボット目線の映像（YOLO の枠付き）を別ウィンドウで表示（ノードの起動を待ってから）
+( sleep 15; ros2 run rqt_image_view rqt_image_view /detector/image/compressed > log/imageview.log 2>&1 ) &
+
+# 6. 検出・制御・指示ノード（待機状態で開始）
 echo "== 準備完了。PowerShell から talk で指示してください"
 ros2 launch pai_seek seek.launch.py target:=person mode:=stop
