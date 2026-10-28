@@ -7,3 +7,5 @@ __pycache__/
 videos/
 reference/
 progress.md
+record.sh
+src/pai_seek/pai_seek/recorder_node.py

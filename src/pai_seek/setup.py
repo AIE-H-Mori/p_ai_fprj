@@ -21,7 +21,6 @@ setup(
             'controller = pai_seek.controller_node:main',
             'instruction = pai_seek.instruction_node:main',
             'talk = pai_seek.talk_node:main',
-            'recorder = pai_seek.recorder_node:main',
         ],
     },
 )
